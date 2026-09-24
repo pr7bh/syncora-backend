@@ -13,3 +13,4 @@ yt-dlp
 python-multipart
 imageio-ffmpeg
 groq
+langchain-groq

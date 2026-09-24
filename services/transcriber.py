@@ -1,9 +1,14 @@
 import os
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FFMPEG_DIR = os.path.join(BASE_DIR, "ffmpeg")
+import platform
 
-os.environ["PATH"] = FFMPEG_DIR + os.pathsep + os.environ["PATH"]
+if platform.system() == "Windows":
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    FFMPEG_DIR = os.path.join(BASE_DIR, "ffmpeg")
+
+    os.environ["PATH"] = (
+        FFMPEG_DIR + os.pathsep + os.environ["PATH"]
+    )
 
 import whisper
 

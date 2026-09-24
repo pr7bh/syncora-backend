@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pymongo
+python-dotenv
+pyjwt
+pwdlib
+argon2-cffi
+google-genai
+google-auth
+chromadb
+openai-whisper
+yt-dlp
+python-multipart

@@ -1,31 +1,28 @@
 import os
 
-import platform
+from dotenv import load_dotenv
+from groq import Groq
 
-if platform.system() == "Windows":
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    FFMPEG_DIR = os.path.join(BASE_DIR, "ffmpeg")
+load_dotenv()
 
-    os.environ["PATH"] = (
-        FFMPEG_DIR + os.pathsep + os.environ["PATH"]
-    )
-
-import whisper
-
-
-print("Loading Whisper model...")
-
-model = whisper.load_model("base")
-
-print("Whisper model loaded.")
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
 
 
 def transcribe_audio(file_path: str):
-    result = model.transcribe(file_path)
+    with open(file_path, "rb") as file:
+        transcription = client.audio.transcriptions.create(
+            file=file,
+            model="whisper-large-v3-turbo",
+            response_format="verbose_json",
+            timestamp_granularities=["segment"],
+            temperature=0.0
+        )
 
     segments = []
 
-    for segment in result["segments"]:
+    for segment in transcription.segments:
         segments.append({
             "start": segment["start"],
             "end": segment["end"],
@@ -33,6 +30,6 @@ def transcribe_audio(file_path: str):
         })
 
     return {
-        "text": result["text"].strip(),
+        "text": transcription.text.strip(),
         "segments": segments
     }

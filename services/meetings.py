@@ -132,3 +132,16 @@ async def get_meeting(
         "summary": meeting.get("summary"),
         "chat_history": meeting.get("chat_history", [])
     }
+
+
+async def delete_meeting_by_id(meeting_id: str, user_id: str):
+    try:
+        result = await meetings_collection.delete_one({
+            "_id": ObjectId(meeting_id),
+            "user_id": ObjectId(user_id)
+        })
+
+        return result.deleted_count > 0
+
+    except Exception:
+        return False

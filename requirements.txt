@@ -11,3 +11,5 @@ chromadb
 openai-whisper
 yt-dlp
 python-multipart
+imageio-ffmpeg
+groq

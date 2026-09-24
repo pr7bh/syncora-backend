@@ -33,9 +33,15 @@ def generate_response(prompt: str) -> str:
 
     except Exception as error:
 
-        # Gemini rate limit
-        if "429" in str(error) or "RESOURCE_EXHAUSTED" in str(error):
+        error_message = str(error)
 
+        # Gemini rate limit / temporary unavailable
+        if (
+            "429" in error_message
+            or "RESOURCE_EXHAUSTED" in error_message
+            or "503" in error_message
+            or "UNAVAILABLE" in error_message
+        ):
             response = groq_client.invoke(prompt)
 
             return response.content

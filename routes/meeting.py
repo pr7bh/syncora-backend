@@ -3,6 +3,7 @@ import shutil
 
 from fastapi import (
     APIRouter,
+    HTTPException,
     UploadFile,
     File,
     Depends
@@ -18,6 +19,7 @@ from services.llm import (
 from services.rag import store_transcript
 
 from services.meetings import (
+    delete_meeting_by_id,
     save_meeting,
     get_meetings,
     get_meeting
@@ -226,3 +228,25 @@ async def get_single_meeting(
         }
 
     return meeting
+
+@router.delete("/meetings/{meeting_id}")
+async def delete_meeting(
+    meeting_id: str,
+    current_user=Depends(get_current_user)
+):
+    user_id = str(current_user["_id"])
+
+    deleted = await delete_meeting_by_id(
+        meeting_id,
+        user_id
+    )
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail="Meeting not found"
+        )
+
+    return {
+        "message": "Meeting deleted successfully"
+    }

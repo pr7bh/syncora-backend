@@ -9,7 +9,7 @@ google-genai
 google-auth
 chromadb
 openai-whisper
-yt-dlp
+yt-dlp[default]
 python-multipart
 imageio-ffmpeg
 groq

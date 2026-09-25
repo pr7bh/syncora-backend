@@ -8,7 +8,6 @@ argon2-cffi
 google-genai
 google-auth
 chromadb
-openai-whisper
 yt-dlp[default]
 python-multipart
 imageio-ffmpeg

@@ -12,9 +12,16 @@ def download_youtube_audio(url: str):
         "%(id)s.%(ext)s"
     )
 
+    deno_path = os.path.expanduser("~/.deno/bin/deno")
+
     options = {
         "format": "bestaudio/best",
         "outtmpl": output_template,
+        "js_runtimes": {
+            "deno": {
+                "path": deno_path
+            }
+        },
     }
 
     with yt_dlp.YoutubeDL(options) as ydl:

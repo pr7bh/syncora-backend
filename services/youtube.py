@@ -1,31 +1,47 @@
-import os
-import yt_dlp
+from youtube_transcript_api import YouTubeTranscriptApi
 
 
-def download_youtube_audio(url: str):
+def get_video_id(url: str) -> str:
 
-    output_dir = "uploads"
-    os.makedirs(output_dir, exist_ok=True)
+    if "youtu.be/" in url:
+        return url.split("youtu.be/")[1].split("?")[0]
 
-    output_template = os.path.join(
-        output_dir,
-        "%(id)s.%(ext)s"
+    if "youtube.com/watch" in url:
+        return url.split("v=")[1].split("&")[0]
+
+    if "youtube.com/shorts/" in url:
+        return url.split("youtube.com/shorts/")[1].split("?")[0]
+
+    raise ValueError("Invalid YouTube URL")
+
+
+def get_youtube_transcript(url: str):
+
+    video_id = get_video_id(url)
+
+    api = YouTubeTranscriptApi()
+
+    transcript = api.fetch(video_id)
+
+    segments = []
+
+    for item in transcript:
+
+        start = float(item.start)
+        duration = float(item.duration)
+
+        segments.append({
+            "start": start,
+            "end": start + duration,
+            "text": item.text.strip()
+        })
+
+    text = " ".join(
+        segment["text"]
+        for segment in segments
     )
 
-    deno_path = os.path.expanduser("~/.deno/bin/deno")
-
-    options = {
-        "format": "bestaudio/best",
-        "outtmpl": output_template,
-        "js_runtimes": {
-            "deno": {
-                "path": deno_path
-            }
-        },
+    return {
+        "text": text,
+        "segments": segments
     }
-
-    with yt_dlp.YoutubeDL(options) as ydl:
-        info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info)
-
-    return filename

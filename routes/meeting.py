@@ -11,7 +11,7 @@ from fastapi import (
 from pydantic import BaseModel
 
 from services.transcriber import transcribe_audio
-from services.youtube import download_youtube_audio
+from services.youtube import get_youtube_transcript
 from services.llm import (
     generate_summary,
     generate_meeting_title
@@ -74,12 +74,8 @@ async def summarize_youtube(
 
     user_id = str(current_user["_id"])
 
-    file_path = download_youtube_audio(
+    transcription = get_youtube_transcript(
         request.url
-    )
-
-    transcription = transcribe_audio(
-        file_path
     )
 
     transcript = transcription["text"]
@@ -96,7 +92,7 @@ async def summarize_youtube(
     # Save meeting
     meeting = await save_meeting(
         user_id=user_id,
-        filename=os.path.basename(file_path),
+        filename="youtube",
         source=request.url,
         transcript=transcript,
         timeline=timeline,
@@ -112,15 +108,13 @@ async def summarize_youtube(
 
     return {
         "meeting_id": meeting["id"],
-        "filename": os.path.basename(file_path),
+        "filename": "youtube",
         "source": request.url,
         "transcript": transcript,
         "timeline": timeline,
         "summary": summary,
         "title": title
     }
-
-
 # =========================
 # Upload / Transcribe
 # =========================

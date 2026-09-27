@@ -74,22 +74,25 @@ async def summarize_youtube(
 
     user_id = str(current_user["_id"])
 
-    transcription = get_youtube_transcript(
-        request.url
-    )
+    try:
+        transcription = get_youtube_transcript(
+            request.url
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unable to retrieve YouTube transcript: {str(error)}"
+        )
 
     transcript = transcription["text"]
     timeline = transcription["segments"]
 
-    summary = generate_summary(
-        timeline
-    )
+    # Generate summary
+    summary = generate_summary(timeline)
 
-    title = generate_meeting_title(
-        transcript
-    )
+    # Generate meeting title
+    title = generate_meeting_title(transcript)
 
-    # Save meeting
     meeting = await save_meeting(
         user_id=user_id,
         filename="youtube",
@@ -100,7 +103,6 @@ async def summarize_youtube(
         title=title
     )
 
-    # Store transcript in RAG
     store_transcript(
         meeting["id"],
         timeline

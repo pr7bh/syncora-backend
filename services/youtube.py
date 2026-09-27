@@ -1,45 +1,72 @@
-from youtube_transcript_api import YouTubeTranscriptApi
+import os
+import requests
 
 
-def get_video_id(url: str) -> str:
-
-    if "youtu.be/" in url:
-        return url.split("youtu.be/")[1].split("?")[0]
-
-    if "youtube.com/watch" in url:
-        return url.split("v=")[1].split("&")[0]
-
-    if "youtube.com/shorts/" in url:
-        return url.split("youtube.com/shorts/")[1].split("?")[0]
-
-    raise ValueError("Invalid YouTube URL")
+API_URL = "https://www.youtubetranscript.dev/api/v2/transcribe"
 
 
 def get_youtube_transcript(url: str):
 
-    video_id = get_video_id(url)
+    api_key = os.getenv("YOUTUBE_TRANSCRIPT_API_KEY")
 
-    api = YouTubeTranscriptApi()
+    if not api_key:
+        raise ValueError(
+            "YOUTUBE_TRANSCRIPT_API_KEY is not configured"
+        )
 
-    transcript = api.fetch(video_id)
+    response = requests.post(
+        API_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "video": url,
+            "source": "auto",
+            "format": {
+                "timestamp": True,
+                "paragraphs": False,
+                "words": False,
+            },
+        },
+        timeout=60,
+    )
+
+    if not response.ok:
+        try:
+            error_data = response.json()
+            error_message = error_data.get(
+                "message",
+                "Failed to retrieve YouTube transcript"
+            )
+        except Exception:
+            error_message = response.text
+
+        raise ValueError(error_message)
+
+    data = response.json()
+
+    transcript_data = data.get("data", {}).get("transcript")
+
+    if not transcript_data:
+        raise ValueError(
+            "No transcript was returned for this YouTube video"
+        )
 
     segments = []
 
-    for item in transcript:
+    for item in transcript_data.get("segments", []):
 
-        start = float(item.start)
-        duration = float(item.duration)
+        start_ms = float(item.get("start", 0))
+        end_ms = float(item.get("end", start_ms))
 
         segments.append({
-            "start": start,
-            "end": start + duration,
-            "text": item.text.strip()
+            "start": start_ms / 1000,
+            "end": end_ms / 1000,
+            "text": item.get("text", "").strip()
         })
 
-    text = " ".join(
-        segment["text"]
-        for segment in segments
-    )
+    text = transcript_data.get("text", "").strip()
 
     return {
         "text": text,

@@ -265,9 +265,8 @@ async def upload_profile_picture(
     with open(file_path, "wb") as buffer:
         buffer.write(contents)
 
-    profile_image_url = (
-        f"http://localhost:8000/uploads/profiles/{filename}"
-    )
+    # Store relative path
+    profile_image_url = f"/uploads/profiles/{filename}"
 
     await users_collection.update_one(
         {

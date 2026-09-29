@@ -266,7 +266,10 @@ async def upload_profile_picture(
         buffer.write(contents)
 
     # Store relative path
-    profile_image_url = f"/uploads/profiles/{filename}"
+    profile_image_url = (
+        f"https://syncora-backend-t96u.onrender.com"
+        f"/uploads/profiles/{filename}"
+    )
 
     await users_collection.update_one(
         {

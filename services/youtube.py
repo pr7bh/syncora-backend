@@ -31,19 +31,23 @@ def get_youtube_transcript(url: str):
         },
         timeout=60,
     )
-
     if not response.ok:
         try:
             error_data = response.json()
             error_message = error_data.get(
                 "message",
-                "Failed to retrieve YouTube transcript"
+                str(error_data)
             )
-        except Exception:
+        except ValueError:
             error_message = response.text
 
-        raise ValueError(error_message)
+        print(
+            f"YouTube Transcript API failed: "
+            f"HTTP {response.status_code} - {error_message}"
+        )
 
+        raise ValueError(error_message)
+    
     data = response.json()
 
     transcript_data = data.get("data", {}).get("transcript")

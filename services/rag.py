@@ -45,13 +45,14 @@ def is_meeting_complete(meeting_id: str, segments: list) -> bool:
     return set(result["ids"]) == expected
 
 
-def patch_missing_chunks(meeting_id: str, segments: list):
+def patch_missing_chunks(meeting_id: str, segments: list) -> dict:
     meeting_id = str(meeting_id)
     result = collection.get(
         where={"meeting_id": meeting_id},
         include=[]
     )
     existing_ids = set(result["ids"])
+    existing_before = len(existing_ids)
 
     for index, segment in enumerate(segments):
         chunk_id = f"{meeting_id}_{index}"
@@ -68,6 +69,11 @@ def patch_missing_chunks(meeting_id: str, segments: list):
                 "end": segment["end"]
             }]
         )
+
+    return {
+        "expected": len(segments),
+        "existing_before": existing_before
+    }
 
 
 def delete_meeting_chunks(meeting_id):

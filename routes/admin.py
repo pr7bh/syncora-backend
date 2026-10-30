@@ -44,6 +44,7 @@ async def reembed_meetings(
     skipped_already_embedded = 0
     failed = 0
     errors = []
+    repaired = []
 
     last_id = None
 
@@ -76,8 +77,13 @@ async def reembed_meetings(
 
             for attempt in range(2):
                 try:
-                    patch_missing_chunks(meeting_id, timeline)
+                    counts = patch_missing_chunks(meeting_id, timeline)
                     processed += 1
+                    repaired.append({
+                        "meeting_id": meeting_id,
+                        "expected": counts["expected"],
+                        "existing_before_repair": counts["existing_before"]
+                    })
                     break
                 except Exception as exc:
                     if attempt == 0 and _is_rate_limit_error(exc):
@@ -100,5 +106,6 @@ async def reembed_meetings(
         "skipped_no_timeline": skipped_no_timeline,
         "skipped_already_embedded": skipped_already_embedded,
         "failed": failed,
+        "repaired": repaired,
         "errors": errors
     }

@@ -1,5 +1,5 @@
 import os
-import shutil
+import uuid
 
 from fastapi import (
     APIRouter,
@@ -16,7 +16,7 @@ from services.llm import (
     generate_summary,
     generate_meeting_title
 )
-from services.rag import store_transcript
+from services.rag import store_transcript, delete_meeting_chunks
 
 from services.meetings import (
     delete_meeting_by_id,
@@ -44,6 +44,10 @@ ALLOWED_EXTENSIONS = {
     ".avi",
     ".mkv"
 }
+
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "100"))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+CHUNK_SIZE = 1024 * 1024
 
 
 # =========================
@@ -128,9 +132,10 @@ async def transcribe(
 ):
 
     user_id = str(current_user["_id"])
+    original_filename = file.filename
 
     extension = os.path.splitext(
-        file.filename
+        original_filename
     )[1].lower()
 
     if extension not in ALLOWED_EXTENSIONS:
@@ -138,65 +143,65 @@ async def transcribe(
             "error": "Unsupported file format"
         }
 
-    os.makedirs(
-        "uploads",
-        exist_ok=True
-    )
+    os.makedirs("uploads", exist_ok=True)
 
     file_path = os.path.join(
         "uploads",
-        file.filename
+        f"{uuid.uuid4()}{extension}"
     )
 
-    with open(
-        file_path,
-        "wb"
-    ) as buffer:
+    # Stream to disk; reject before fully writing if too large
+    written = 0
+    try:
+        with open(file_path, "wb") as buffer:
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File exceeds maximum allowed size of {MAX_UPLOAD_MB} MB"
+                    )
+                buffer.write(chunk)
+    except HTTPException:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise
 
-        shutil.copyfileobj(
-            file.file,
-            buffer
+    try:
+        transcription = transcribe_audio(file_path)
+
+        transcript = transcription["text"]
+        timeline = transcription["segments"]
+
+        summary = generate_summary(timeline)
+
+        title = generate_meeting_title(transcript)
+
+        meeting = await save_meeting(
+            user_id=user_id,
+            filename=original_filename,
+            transcript=transcript,
+            timeline=timeline,
+            summary=summary,
+            title=title
         )
 
-    transcription = transcribe_audio(
-        file_path
-    )
+        store_transcript(meeting["id"], timeline)
 
-    transcript = transcription["text"]
-    timeline = transcription["segments"]
-
-    summary = generate_summary(
-        timeline
-    )
-
-    title = generate_meeting_title(
-        transcript
-    )
-
-    # Save meeting
-    meeting = await save_meeting(
-        user_id=user_id,
-        filename=file.filename,
-        transcript=transcript,
-        timeline=timeline,
-        summary=summary,
-        title=title
-    )
-
-    # Store transcript in RAG
-    store_transcript(
-        meeting["id"],
-        timeline
-    )
-
-    return {
-        "meeting_id": meeting["id"],
-        "filename": file.filename,
-        "transcript": transcript,
-        "timeline": timeline,
-        "summary": summary,
-        "title": title
-    }
+        return {
+            "meeting_id": meeting["id"],
+            "filename": original_filename,
+            "transcript": transcript,
+            "timeline": timeline,
+            "summary": summary,
+            "title": title
+        }
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 
 # =========================
@@ -241,6 +246,14 @@ async def delete_meeting(
         raise HTTPException(
             status_code=404,
             detail="Meeting not found"
+        )
+
+    try:
+        delete_meeting_chunks(meeting_id)
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Meeting removed from database but vector cleanup failed"
         )
 
     return {

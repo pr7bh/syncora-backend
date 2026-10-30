@@ -15,7 +15,7 @@ gemini_client = genai.Client(
 
 # ChromaDB
 chroma_client = chromadb.PersistentClient(
-    path="./chroma_db"
+    path=os.getenv("CHROMA_PATH", "./chroma_db")
 )
 
 collection = chroma_client.get_or_create_collection(
@@ -31,6 +31,20 @@ def create_embedding(text: str):
     )
 
     return response.embeddings[0].values
+
+
+def has_meeting_chunks(meeting_id: str) -> bool:
+    result = collection.get(
+        where={"meeting_id": str(meeting_id)},
+        limit=1
+    )
+    return len(result["ids"]) > 0
+
+
+def delete_meeting_chunks(meeting_id):
+    collection.delete(
+        where={"meeting_id": str(meeting_id)}
+    )
 
 
 def store_transcript(meeting_id, segments):

@@ -21,7 +21,7 @@ gemini_client = genai.Client(
 # ============================================================
 
 groq_client = ChatGroq(
-    model="openai/gpt-oss-20b",
+    model="llama-3.3-70b-versatile",
     groq_api_key=os.getenv("GROQ_API_KEY"),
     temperature=0.2
 )
@@ -36,7 +36,7 @@ def generate_response(prompt: str) -> str:
     try:
 
         response = gemini_client.models.generate_content(
-            model="gemini-3.6-flash",
+            model="gemini-2.5-flash",
             contents=prompt
         )
 

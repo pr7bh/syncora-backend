@@ -5,6 +5,7 @@ from database import client
 from routes.meeting import router as meeting_router
 from routes.chat import router as chat_router
 from routes.auth import router as auth_router
+from routes.admin import router as admin_router
 from fastapi.staticfiles import StaticFiles
 import os
 
@@ -34,6 +35,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(meeting_router)
 app.include_router(chat_router)
+app.include_router(admin_router)
 
 os.makedirs("uploads/profiles", exist_ok=True)
 

@@ -33,12 +33,41 @@ def create_embedding(text: str):
     return response.embeddings[0].values
 
 
-def has_meeting_chunks(meeting_id: str) -> bool:
+def is_meeting_complete(meeting_id: str, segments: list) -> bool:
+    if not segments:
+        return True
+    meeting_id = str(meeting_id)
+    expected = {f"{meeting_id}_{i}" for i in range(len(segments))}
     result = collection.get(
-        where={"meeting_id": str(meeting_id)},
-        limit=1
+        where={"meeting_id": meeting_id},
+        include=[]
     )
-    return len(result["ids"]) > 0
+    return set(result["ids"]) == expected
+
+
+def patch_missing_chunks(meeting_id: str, segments: list):
+    meeting_id = str(meeting_id)
+    result = collection.get(
+        where={"meeting_id": meeting_id},
+        include=[]
+    )
+    existing_ids = set(result["ids"])
+
+    for index, segment in enumerate(segments):
+        chunk_id = f"{meeting_id}_{index}"
+        if chunk_id in existing_ids:
+            continue
+        embedding = create_embedding(segment["text"])
+        collection.add(
+            ids=[chunk_id],
+            embeddings=[embedding],
+            documents=[segment["text"]],
+            metadatas=[{
+                "meeting_id": meeting_id,
+                "start": segment["start"],
+                "end": segment["end"]
+            }]
+        )
 
 
 def delete_meeting_chunks(meeting_id):

@@ -5,7 +5,7 @@ import secrets
 from fastapi import APIRouter, Header, HTTPException
 
 from database import meetings_collection
-from services.rag import has_meeting_chunks, store_transcript
+from services.rag import is_meeting_complete, patch_missing_chunks
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -70,13 +70,13 @@ async def reembed_meetings(
                 skipped_no_timeline += 1
                 continue
 
-            if has_meeting_chunks(meeting_id):
+            if is_meeting_complete(meeting_id, timeline):
                 skipped_already_embedded += 1
                 continue
 
             for attempt in range(2):
                 try:
-                    store_transcript(meeting_id, timeline)
+                    patch_missing_chunks(meeting_id, timeline)
                     processed += 1
                     break
                 except Exception as exc:

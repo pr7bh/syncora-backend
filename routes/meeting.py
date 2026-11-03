@@ -250,11 +250,8 @@ async def delete_meeting(
 
     try:
         delete_meeting_chunks(meeting_id)
-    except Exception:
-        raise HTTPException(
-            status_code=500,
-            detail="Meeting removed from database but vector cleanup failed"
-        )
+    except Exception as exc:
+        print(f"Warning: ChromaDB cleanup failed for meeting {meeting_id}: {exc}")
 
     return {
         "message": "Meeting deleted successfully"

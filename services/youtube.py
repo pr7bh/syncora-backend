@@ -74,7 +74,17 @@ def _via_freetranscript(url: str) -> dict:
 
 def _via_ytapi(url: str) -> dict:
     video_id = _extract_video_id(url)
-    items = YouTubeTranscriptApi.get_transcript(video_id)
+    fetched = YouTubeTranscriptApi().fetch(video_id)
+    items = []
+    for snippet in fetched:
+        if hasattr(snippet, "text"):
+            items.append({
+                "text": snippet.text,
+                "start": snippet.start,
+                "duration": getattr(snippet, "duration", 0),
+            })
+        else:
+            items.append(snippet)
     return _segments_from_list(items)
 
 

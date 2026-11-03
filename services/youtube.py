@@ -1,33 +1,14 @@
 
+import os
 import re
 import requests
 
 FREETRANSCRIPT_URL = "https://api.freetranscriptapi.com/v1/transcript"
-INNERTUBE_URL = "https://www.youtube.com/youtubei/v1/player"
+SUPADATA_URL = "https://api.supadata.ai/v1/youtube/transcript"
 
 _VIDEO_ID_RE = re.compile(
     r"(?:v=|youtu\.be/|embed/|shorts/)([A-Za-z0-9_-]{11})"
 )
-
-_INNERTUBE_PAYLOAD = {
-    "context": {
-        "client": {
-            "clientName": "ANDROID",
-            "clientVersion": "19.09.37",
-            "androidSdkVersion": 30,
-            "userAgent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11)",
-            "hl": "en",
-            "gl": "US",
-        }
-    }
-}
-
-_INNERTUBE_HEADERS = {
-    "Content-Type": "application/json",
-    "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11)",
-    "X-YouTube-Client-Name": "3",
-    "X-YouTube-Client-Version": "19.09.37",
-}
 
 
 def _extract_video_id(url: str) -> str:
@@ -87,54 +68,45 @@ def _via_freetranscript(url: str) -> dict:
     return _segments_from_list(transcript_data)
 
 
-def _via_innertube(url: str) -> dict:
-    video_id = _extract_video_id(url)
+def _via_supadata(url: str) -> dict:
+    """
+    Supadata API (https://supadata.ai) — free tier, optional API key.
+    Response: {"content": [{"text": "...", "offset": <ms>, "duration": <ms>, "lang": "en"}, ...]}
+    offset and duration are in milliseconds; convert to seconds.
+    """
+    headers = {}
+    api_key = os.getenv("SUPADATA_API_KEY")
+    if api_key:
+        headers["x-api-key"] = api_key
 
-    payload = {**_INNERTUBE_PAYLOAD, "videoId": video_id}
-    resp = requests.post(
-        INNERTUBE_URL,
-        json=payload,
-        headers=_INNERTUBE_HEADERS,
+    response = requests.get(
+        SUPADATA_URL,
+        params={"url": url, "text": "false"},
+        headers=headers,
         timeout=30,
     )
-    resp.raise_for_status()
-    data = resp.json()
 
-    caption_tracks = (
-        data.get("captions", {})
-        .get("playerCaptionsTracklistRenderer", {})
-        .get("captionTracks", [])
-    )
+    if not response.ok:
+        try:
+            msg = response.json().get("message", response.text)
+        except ValueError:
+            msg = response.text
+        print(f"Supadata failed: HTTP {response.status_code} - {msg}")
+        raise ValueError(f"Supadata: HTTP {response.status_code}")
 
-    if not caption_tracks:
-        raise ValueError(
-            "No captions are available for this video. "
-            "The video may not have captions enabled."
-        )
+    data = response.json()
+    content = data.get("content", [])
 
-    # Prefer English; fall back to first available track
-    track_url = None
-    for track in caption_tracks:
-        if track.get("languageCode", "").startswith("en"):
-            track_url = track["baseUrl"]
-            break
-    if not track_url:
-        track_url = caption_tracks[0]["baseUrl"]
-
-    cap_resp = requests.get(track_url + "&fmt=json3", timeout=30)
-    cap_resp.raise_for_status()
-    cap_data = cap_resp.json()
+    if not content:
+        raise ValueError("No transcript is available for this YouTube video.")
 
     segments = []
-    for event in cap_data.get("events", []):
-        if "segs" not in event:
-            continue
-        start = event.get("tStartMs", 0) / 1000
-        duration = event.get("dDurationMs", 0) / 1000
-        text = "".join(
-            seg.get("utf8", "") for seg in event["segs"]
-        ).strip()
-        if not text or text == "\n":
+    for item in content:
+        # offset and duration from Supadata are in milliseconds
+        start = float(item.get("offset", 0)) / 1000
+        duration = float(item.get("duration", 0)) / 1000
+        text = item.get("text", "").strip()
+        if not text:
             continue
         segments.append({
             "start": start,
@@ -151,21 +123,70 @@ def _via_innertube(url: str) -> dict:
     }
 
 
+def _via_ytapi(url: str) -> dict:
+    """
+    youtube-transcript-api last-resort fallback.
+    Note: This library uses HTML scraping and is typically blocked on cloud IPs.
+    Included for completeness and local/non-cloud environments.
+    """
+    try:
+        from youtube_transcript_api import (
+            YouTubeTranscriptApi,
+            NoTranscriptFound,
+            TranscriptsDisabled,
+            VideoUnavailable,
+        )
+    except ImportError as err:
+        raise ValueError("youtube-transcript-api is not available.") from err
+
+    video_id = _extract_video_id(url)
+
+    try:
+        fetched = YouTubeTranscriptApi().fetch(video_id)
+    except (NoTranscriptFound, TranscriptsDisabled, VideoUnavailable) as err:
+        print(f"youtube-transcript-api: no transcript ({type(err).__name__}): {err}")
+        raise ValueError(
+            "No transcript is available for this YouTube video. "
+            "The video may not have captions enabled."
+        ) from err
+    except Exception as err:
+        print(f"youtube-transcript-api failed ({type(err).__name__}): {err}")
+        raise ValueError(
+            "Could not retrieve the YouTube transcript via youtube-transcript-api."
+        ) from err
+
+    items = []
+    for snippet in fetched:
+        if hasattr(snippet, "text"):
+            items.append({
+                "text": snippet.text,
+                "start": snippet.start,
+                "duration": getattr(snippet, "duration", 0),
+            })
+        else:
+            items.append(snippet)
+    return _segments_from_list(items)
+
+
 def get_youtube_transcript(url: str) -> dict:
+    # Validate URL format before any network call
+    _extract_video_id(url)
+
+    # Provider 1: FreeTranscriptAPI
     try:
         return _via_freetranscript(url)
     except (requests.Timeout, requests.RequestException) as err:
-        print(f"FreeTranscriptAPI network error, trying Innertube: {err}")
+        print(f"FreeTranscriptAPI network error, trying Supadata: {err}")
     except ValueError as err:
-        print(f"FreeTranscriptAPI error, trying Innertube: {err}")
+        print(f"FreeTranscriptAPI error, trying Supadata: {err}")
 
+    # Provider 2: Supadata
     try:
-        return _via_innertube(url)
-    except ValueError:
-        raise
-    except Exception as err:
-        print(f"Innertube fallback failed ({type(err).__name__}): {err}")
-        raise ValueError(
-            "Could not retrieve the YouTube transcript. "
-            "The video may not have captions, or the URL is invalid."
-        ) from err
+        return _via_supadata(url)
+    except (requests.Timeout, requests.RequestException) as err:
+        print(f"Supadata network error, trying youtube-transcript-api: {err}")
+    except ValueError as err:
+        print(f"Supadata error, trying youtube-transcript-api: {err}")
+
+    # Provider 3: youtube-transcript-api (last resort; blocked on most cloud IPs)
+    return _via_ytapi(url)

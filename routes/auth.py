@@ -9,6 +9,7 @@ from fastapi import (
 from services.dependencies import get_current_user
 from database import users_collection
 import os
+import io
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from services.auth import (
@@ -17,6 +18,15 @@ from services.auth import (
     verify_password,
 )
 import uuid
+import cloudinary
+import cloudinary.uploader
+
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True,
+)
 
 router = APIRouter(
     prefix="/api/auth",
@@ -225,11 +235,7 @@ async def upload_profile_picture(
             detail="Invalid file"
         )
 
-    allowed_types = {
-        "image/jpeg": ".jpg",
-        "image/png": ".png",
-        "image/webp": ".webp",
-    }
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
 
     if file.content_type not in allowed_types:
         raise HTTPException(
@@ -237,52 +243,75 @@ async def upload_profile_picture(
             detail="Only JPG, PNG and WebP images are allowed"
         )
 
-    extension = allowed_types[file.content_type]
-
-    filename = f"{uuid.uuid4()}{extension}"
-
-    upload_directory = "uploads/profiles"
-
-    os.makedirs(
-        upload_directory,
-        exist_ok=True
-    )
-
-    file_path = os.path.join(
-        upload_directory,
-        filename
-    )
-
     contents = await file.read()
 
-    # 5 MB limit
     if len(contents) > 5 * 1024 * 1024:
         raise HTTPException(
             status_code=400,
             detail="Profile picture must be smaller than 5 MB"
         )
 
-    with open(file_path, "wb") as buffer:
-        buffer.write(contents)
+    # Delete previous Cloudinary image if one exists
+    old_public_id = current_user.get("profile_picture_public_id")
+    if old_public_id:
+        try:
+            cloudinary.uploader.destroy(old_public_id)
+        except Exception as err:
+            print(f"Cloudinary: could not delete old image {old_public_id}: {err}")
 
-    # Store relative path
-    profile_image_url = (
-        f"https://syncora-backend-t96u.onrender.com"
-        f"/uploads/profiles/{filename}"
-    )
+    # Upload to Cloudinary
+    try:
+        result = cloudinary.uploader.upload(
+            io.BytesIO(contents),
+            folder="syncora/profiles",
+            public_id=str(uuid.uuid4()),
+            resource_type="image",
+            overwrite=True,
+        )
+    except Exception as err:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to upload profile picture. Please try again."
+        ) from err
+
+    secure_url = result["secure_url"]
+    public_id = result["public_id"]
 
     await users_collection.update_one(
-        {
-            "_id": current_user["_id"]
-        },
+        {"_id": current_user["_id"]},
         {
             "$set": {
-                "profile_image": profile_image_url
+                "profile_image": secure_url,
+                "profile_picture_public_id": public_id,
             }
         }
     )
 
     return {
         "message": "Profile picture updated successfully",
-        "profile_image": profile_image_url
+        "profile_image": secure_url,
     }
+
+
+@router.delete("/profile-picture")
+async def remove_profile_picture(
+    current_user=Depends(get_current_user)
+):
+    public_id = current_user.get("profile_picture_public_id")
+    if public_id:
+        try:
+            cloudinary.uploader.destroy(public_id)
+        except Exception as err:
+            print(f"Cloudinary: could not delete image {public_id}: {err}")
+
+    await users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {
+            "$unset": {
+                "profile_image": "",
+                "profile_picture_public_id": "",
+            }
+        }
+    )
+
+    return {"message": "Profile picture removed successfully"}

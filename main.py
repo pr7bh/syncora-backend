@@ -45,7 +45,7 @@ app.mount(
     name="uploads"
 )
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def home():
     return {
         "message": "Syncora Backend"

@@ -6,6 +6,14 @@ import requests
 FREETRANSCRIPT_URL = "https://api.freetranscriptapi.com/v1/transcript"
 SUPADATA_URL = "https://api.supadata.ai/v1/youtube/transcript"
 
+
+class TranscriptNotAvailable(ValueError):
+    """400 — invalid URL, video has no captions, private/deleted video."""
+
+
+class TranscriptProviderError(Exception):
+    """502 — all providers failed due to server/network issues."""
+
 _VIDEO_ID_RE = re.compile(
     r"(?:v=|youtu\.be/|embed/|shorts/)([A-Za-z0-9_-]{11})"
 )
@@ -14,8 +22,8 @@ _VIDEO_ID_RE = re.compile(
 def _extract_video_id(url: str) -> str:
     match = _VIDEO_ID_RE.search(url)
     if not match:
-        raise ValueError(
-            "Could not extract a YouTube video ID from the provided URL."
+        raise TranscriptNotAvailable(
+            "Invalid YouTube URL. Please provide a valid youtube.com or youtu.be link."
         )
     return match.group(1)
 
@@ -220,15 +228,13 @@ def _via_ytapi(url: str) -> dict:
         fetched = YouTubeTranscriptApi().fetch(video_id)
     except (NoTranscriptFound, TranscriptsDisabled, VideoUnavailable) as err:
         print(f"youtube-transcript-api: no transcript ({type(err).__name__}): {err}")
-        raise ValueError(
+        raise TranscriptNotAvailable(
             "No transcript is available for this YouTube video. "
             "The video may not have captions enabled."
         ) from err
     except Exception as err:
         print(f"youtube-transcript-api failed ({type(err).__name__}): {err}")
-        raise ValueError(
-            "Could not retrieve the YouTube transcript via youtube-transcript-api."
-        ) from err
+        raise
 
     items = []
     for snippet in fetched:
@@ -244,7 +250,7 @@ def _via_ytapi(url: str) -> dict:
 
 
 def get_youtube_transcript(url: str) -> dict:
-    # Validate URL format before any network call
+    # Validate URL first — raises TranscriptNotAvailable (→ 400) on bad input
     _extract_video_id(url)
 
     # Provider 1: FreeTranscriptAPI
@@ -252,6 +258,8 @@ def get_youtube_transcript(url: str) -> dict:
         return _via_freetranscript(url)
     except (requests.Timeout, requests.RequestException) as err:
         print(f"FreeTranscriptAPI network error, trying Supadata: {err}")
+    except TranscriptNotAvailable:
+        raise
     except ValueError as err:
         print(f"FreeTranscriptAPI error, trying Supadata: {err}")
 
@@ -260,6 +268,8 @@ def get_youtube_transcript(url: str) -> dict:
         return _via_supadata(url)
     except (requests.Timeout, requests.RequestException) as err:
         print(f"Supadata network error, trying timedtext: {err}")
+    except TranscriptNotAvailable:
+        raise
     except ValueError as err:
         print(f"Supadata error, trying timedtext: {err}")
 
@@ -268,8 +278,18 @@ def get_youtube_transcript(url: str) -> dict:
         return _via_timedtext(url)
     except (requests.Timeout, requests.RequestException) as err:
         print(f"Timedtext network error, trying youtube-transcript-api: {err}")
+    except TranscriptNotAvailable:
+        raise
     except ValueError as err:
         print(f"Timedtext error, trying youtube-transcript-api: {err}")
 
     # Provider 4: youtube-transcript-api (last resort; blocked on most cloud IPs)
-    return _via_ytapi(url)
+    try:
+        return _via_ytapi(url)
+    except TranscriptNotAvailable:
+        raise
+    except Exception as err:
+        print(f"All providers exhausted. Last error ({type(err).__name__}): {err}")
+        raise TranscriptProviderError(
+            "All transcript providers are currently unavailable. Please try again later."
+        ) from err

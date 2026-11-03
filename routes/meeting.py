@@ -11,7 +11,11 @@ from fastapi import (
 from pydantic import BaseModel
 
 from services.transcriber import transcribe_audio
-from services.youtube import get_youtube_transcript
+from services.youtube import (
+    get_youtube_transcript,
+    TranscriptNotAvailable,
+    TranscriptProviderError,
+)
 from services.llm import (
     generate_summary,
     generate_meeting_title
@@ -79,13 +83,15 @@ async def summarize_youtube(
     user_id = str(current_user["_id"])
 
     try:
-        transcription = get_youtube_transcript(
-            request.url
-        )
+        transcription = get_youtube_transcript(request.url)
+    except TranscriptNotAvailable as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except TranscriptProviderError as error:
+        raise HTTPException(status_code=502, detail=str(error))
     except Exception as error:
         raise HTTPException(
-            status_code=400,
-            detail=f"Unable to retrieve YouTube transcript: {str(error)}"
+            status_code=500,
+            detail="An unexpected error occurred while retrieving the transcript."
         )
 
     transcript = transcription["text"]

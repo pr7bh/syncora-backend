@@ -9,6 +9,7 @@ google-genai
 google-auth
 chromadb
 youtube-transcript-api
+requests
 python-multipart
 imageio-ffmpeg
 groq

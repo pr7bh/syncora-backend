@@ -89,11 +89,13 @@ def get_youtube_transcript(url: str) -> dict:
     try:
         return _via_ytapi(url)
     except (NoTranscriptFound, TranscriptsDisabled, VideoUnavailable) as err:
+        print(f"youtube-transcript-api: no transcript ({type(err).__name__}): {err}")
         raise ValueError(
             "No transcript is available for this YouTube video. "
             "The video may not have captions enabled."
         ) from err
     except Exception as err:
+        print(f"youtube-transcript-api fallback failed ({type(err).__name__}): {err}")
         raise ValueError(
             "Could not retrieve the YouTube transcript. Please try again later."
         ) from err

@@ -36,7 +36,7 @@ def generate_response(prompt: str) -> str:
     try:
 
         response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-flash-preview-05-20",
             contents=prompt
         )
 
@@ -46,12 +46,15 @@ def generate_response(prompt: str) -> str:
 
         error_message = str(error)
 
-        # Gemini rate limit / temporary unavailable
+        # Fall back to Groq on rate limits, quota exhaustion, model unavailability,
+        # or any other Gemini API error that shouldn't be surfaced to the user.
         if (
             "429" in error_message
             or "RESOURCE_EXHAUSTED" in error_message
             or "503" in error_message
             or "UNAVAILABLE" in error_message
+            or "404" in error_message
+            or "NOT_FOUND" in error_message
         ):
 
             response = groq_client.invoke(prompt)

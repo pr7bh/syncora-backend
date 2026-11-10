@@ -24,9 +24,9 @@ def transcribe_audio(file_path: str):
 
     for segment in transcription.segments:
         segments.append({
-            "start": segment.start,
-            "end": segment.end,
-            "text": segment.text.strip()
+            "start": segment["start"],
+            "end": segment["end"],
+            "text": segment["text"].strip()
         })
 
     return {

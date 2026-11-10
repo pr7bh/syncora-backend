@@ -36,32 +36,25 @@ def generate_response(prompt: str) -> str:
     try:
 
         response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash-preview-05-20",
+            model="gemini-2.5-flash",
             contents=prompt
         )
 
         return response.text
 
-    except Exception as error:
+    except Exception as gemini_error:
 
-        error_message = str(error)
+        # Always fall back to Groq on any Gemini failure — model deprecations,
+        # quota exhaustion, transient errors — so the app keeps working.
+        print(f"Gemini failed, falling back to Groq: {gemini_error}")
 
-        # Fall back to Groq on rate limits, quota exhaustion, model unavailability,
-        # or any other Gemini API error that shouldn't be surfaced to the user.
-        if (
-            "429" in error_message
-            or "RESOURCE_EXHAUSTED" in error_message
-            or "503" in error_message
-            or "UNAVAILABLE" in error_message
-            or "404" in error_message
-            or "NOT_FOUND" in error_message
-        ):
-
+        try:
             response = groq_client.invoke(prompt)
-
             return response.content
-
-        raise
+        except Exception as groq_error:
+            # Both providers failed — re-raise the original Gemini error.
+            print(f"Groq fallback also failed: {groq_error}")
+            raise gemini_error
 
 
 # ============================================================

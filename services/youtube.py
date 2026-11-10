@@ -53,7 +53,7 @@ def _via_freetranscript(url: str) -> dict:
     response = requests.get(
         FREETRANSCRIPT_URL,
         params={"video_url": url},
-        timeout=60,
+        timeout=15,
     )
 
     if not response.ok:
@@ -253,43 +253,31 @@ def get_youtube_transcript(url: str) -> dict:
     # Validate URL first — raises TranscriptNotAvailable (→ 400) on bad input
     _extract_video_id(url)
 
-    # Provider 1: FreeTranscriptAPI
-    try:
-        return _via_freetranscript(url)
-    except (requests.Timeout, requests.RequestException) as err:
-        print(f"FreeTranscriptAPI network error, trying Supadata: {err}")
-    except TranscriptNotAvailable:
-        raise
-    except ValueError as err:
-        print(f"FreeTranscriptAPI error, trying Supadata: {err}")
+    # Build provider list. When SUPADATA_API_KEY is set, Supadata goes first —
+    # it's the most reliable cloud-safe provider and avoids burning 15 s on
+    # FreeTranscriptAPI (which is historically unreliable) before we try it.
+    providers: list[tuple[str, callable]] = []
+    if os.getenv("SUPADATA_API_KEY"):
+        providers.append(("Supadata", _via_supadata))
+    providers.append(("FreeTranscriptAPI", _via_freetranscript))
+    if not os.getenv("SUPADATA_API_KEY"):
+        providers.append(("Supadata", _via_supadata))
+    providers.append(("timedtext", _via_timedtext))
+    providers.append(("youtube-transcript-api", _via_ytapi))
 
-    # Provider 2: Supadata (requires SUPADATA_API_KEY env var)
-    try:
-        return _via_supadata(url)
-    except (requests.Timeout, requests.RequestException) as err:
-        print(f"Supadata network error, trying timedtext: {err}")
-    except TranscriptNotAvailable:
-        raise
-    except ValueError as err:
-        print(f"Supadata error, trying timedtext: {err}")
+    last_err: Exception = RuntimeError("No providers available.")
+    for name, fn in providers:
+        try:
+            return fn(url)
+        except TranscriptNotAvailable:
+            raise
+        except (requests.Timeout, requests.RequestException) as err:
+            print(f"{name} network error, trying next provider: {err}")
+            last_err = err
+        except Exception as err:
+            print(f"{name} error, trying next provider ({type(err).__name__}): {err}")
+            last_err = err
 
-    # Provider 3: YouTube timedtext endpoint (no auth, different path from scraping)
-    try:
-        return _via_timedtext(url)
-    except (requests.Timeout, requests.RequestException) as err:
-        print(f"Timedtext network error, trying youtube-transcript-api: {err}")
-    except TranscriptNotAvailable:
-        raise
-    except ValueError as err:
-        print(f"Timedtext error, trying youtube-transcript-api: {err}")
-
-    # Provider 4: youtube-transcript-api (last resort; blocked on most cloud IPs)
-    try:
-        return _via_ytapi(url)
-    except TranscriptNotAvailable:
-        raise
-    except Exception as err:
-        print(f"All providers exhausted. Last error ({type(err).__name__}): {err}")
-        raise TranscriptProviderError(
-            "All transcript providers are currently unavailable. Please try again later."
-        ) from err
+    raise TranscriptProviderError(
+        "All transcript providers are currently unavailable. Please try again later."
+    ) from last_err

@@ -13,7 +13,8 @@ gemini_client = genai.Client(
 )
 
 
-# ChromaDB
+# ChromaDB – path is configurable; on ephemeral hosts (Render free tier, etc.)
+# set CHROMA_PATH to a persistent-disk mount path so embeddings survive restarts.
 chroma_client = chromadb.PersistentClient(
     path=os.getenv("CHROMA_PATH", "./chroma_db")
 )
@@ -21,6 +22,7 @@ chroma_client = chromadb.PersistentClient(
 collection = chroma_client.get_or_create_collection(
     name="meeting_transcripts"
 )
+
 
 
 def create_embedding(text: str):

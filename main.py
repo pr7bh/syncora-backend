@@ -1,13 +1,15 @@
+import os
+from contextlib import asynccontextmanager
+
+from database import client
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-from database import client
-from routes.meeting import router as meeting_router
-from routes.chat import router as chat_router
-from routes.auth import router as auth_router
-from routes.admin import router as admin_router
 from fastapi.staticfiles import StaticFiles
-import os
+from routes.admin import router as admin_router
+from routes.auth import router as auth_router
+from routes.chat import router as chat_router
+from routes.meeting import router as meeting_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -36,12 +38,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+_cors_env = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,https://syncora-by-prabh.vercel.app"
+)
+CORS_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://syncora-by-prabh.vercel.app",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

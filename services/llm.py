@@ -12,7 +12,8 @@ load_dotenv()
 # ============================================================
 
 gemini_client = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY")
+    api_key=os.getenv("GEMINI_API_KEY"),
+    http_options={"timeout": 10},
 )
 
 GEMINI_MODEL = "gemini-3.8-flash"
@@ -24,8 +25,8 @@ GEMINI_MODEL = "gemini-3.8-flash"
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # Try models in order; first one that works is used.
+# llama-3.3-70b-versatile removed — confirmed not found on this account.
 GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
     "llama-3.1-70b-versatile",
     "llama-3.1-8b-instant",
     "gemma2-9b-it",
@@ -89,10 +90,11 @@ def format_time(seconds: float):
 
 
 # ============================================================
-# Generate Meeting Summary
+# Generate Summary + Title in a single LLM call
 # ============================================================
 
-def generate_summary(segments):
+def generate_summary_and_title(segments: list, transcript: str) -> tuple[str, str]:
+    """Returns (summary, title) using one LLM call instead of two."""
 
     timestamped_transcript = "\n".join(
         f"[{format_time(segment['start'])} - "
@@ -104,117 +106,68 @@ def generate_summary(segments):
     prompt = f"""
 You are an AI meeting assistant.
 
-Analyze the following timestamped transcript.
-
-The transcript may be written in any language, including:
-- English
-- Hindi
-- Hinglish
-- Punjabi
-- Spanish
-- French
-- or a mixture of multiple languages.
-
-Your job is to understand the transcript regardless of its language
-and ALWAYS generate the final summary in ENGLISH.
+The transcript may be in any language (English, Hindi, Hinglish, Punjabi,
+Spanish, French, or mixed). Understand it and ALWAYS respond in ENGLISH.
 
 Timestamped Transcript:
 
 {timestamped_transcript}
 
+---
 
-Provide the following:
+Respond with EXACTLY this structure — no extra text before or after:
+
+TITLE: <2 to 5 English words capturing the main topic — no quotes, no punctuation unless necessary>
 
 1. Short Summary
-   - Give a concise summary of the entire meeting/video.
-   - ALWAYS write it in English.
+   Concise summary of the entire meeting/video in English.
 
 2. Main Topics Discussed
-   - List the important topics discussed.
-   - ALWAYS write them in English.
-   - Include the timeframe where each topic was discussed.
+   List important topics with timeframes.
 
 3. Important Conclusions
-   - List the important conclusions.
-   - ALWAYS write them in English.
-   - Include the timeframe.
+   List conclusions with timeframes.
 
 4. Action Items
-   - List tasks or actions mentioned in the transcript.
-   - ALWAYS write them in English.
-   - Include the timeframe.
+   List action items with timeframes, or state that none were identified.
 
 5. Decisions Made
-   - List important decisions made during the meeting.
-   - ALWAYS write them in English.
-   - Include the timeframe.
-
-
-Important Rules:
-
-- ALWAYS respond in English.
-- Understand the original language before generating the summary.
-- Do NOT simply summarize based on individual words.
-- Preserve the actual meaning and context of the conversation.
-- Do NOT invent information.
-- Do NOT invent timestamps.
-- Use ONLY timestamps provided in the transcript.
-- If the transcript contains multiple languages, understand all languages
-  and provide one combined summary in English.
-- If there are no clear action items, say that no specific action items
-  were identified.
-- If there are no clear decisions, say that no specific decisions
-  were identified.
-- Keep the summary concise and easy to read.
-- Do not translate the entire transcript unless necessary for
-  understanding the content.
-
-
-Return the final response in English.
-
-"""
-
-    return generate_response(prompt)
-
-
-# ============================================================
-# Generate Meeting Title
-# ============================================================
-
-def generate_meeting_title(transcript: str):
-
-    prompt = f"""
-You are an AI meeting assistant.
-
-Generate a short and meaningful title for the following meeting
-or video transcript.
-
-The transcript may be in:
-- English
-- Hindi
-- Hinglish
-- Punjabi
-- or any other language.
-
-Understand the transcript and ALWAYS generate the title in ENGLISH.
+   List decisions with timeframes, or state that none were identified.
 
 Rules:
-
-- Keep the title between 2 and 5 words.
-- Capture the main topic of the meeting/video.
-- Use meaningful English words.
-- Do not use generic titles such as:
-  "Meeting Summary"
-  "Meeting Transcript"
-  "Video Summary"
-- Do not include quotes.
-- Do not include punctuation unless necessary.
-- Return ONLY the title.
-- Do not provide any explanation.
-
-Transcript:
-
-{transcript[:10000]}
+- Use ONLY timestamps that appear in the transcript.
+- Do NOT invent information.
+- Keep it concise and easy to read.
 """
 
+    response = generate_response(prompt)
+
+    # Split title from summary body
+    lines = response.strip().splitlines()
+    title = "Meeting Summary"
+    summary_lines = lines
+
+    if lines and lines[0].upper().startswith("TITLE:"):
+        raw_title = lines[0][6:].strip()
+        if raw_title:
+            title = raw_title
+        summary_lines = lines[1:]
+
+    summary = "\n".join(summary_lines).strip()
+    return summary, title
+
+
+# Keep these wrappers so existing call sites still work
+def generate_summary(segments: list) -> str:
+    summary, _ = generate_summary_and_title(segments, "")
+    return summary
+
+
+def generate_meeting_title(transcript: str) -> str:
+    # Thin wrapper — only called standalone if needed elsewhere
+    prompt = f"""
+Generate a 2-to-5-word English title for this transcript. Return ONLY the title.
+
+{transcript[:5000]}
+"""
     return generate_response(prompt).strip()

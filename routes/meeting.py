@@ -16,10 +16,7 @@ from services.youtube import (
     TranscriptNotAvailable,
     TranscriptProviderError,
 )
-from services.llm import (
-    generate_summary,
-    generate_meeting_title
-)
+from services.llm import generate_summary_and_title
 from services.rag import store_transcript, delete_meeting_chunks
 
 from services.meetings import (
@@ -97,11 +94,8 @@ async def summarize_youtube(
     transcript = transcription["text"]
     timeline = transcription["segments"]
 
-    # Generate summary
-    summary = generate_summary(timeline)
-
-    # Generate meeting title
-    title = generate_meeting_title(transcript)
+    # Generate summary and title in a single LLM call
+    summary, title = generate_summary_and_title(timeline, transcript)
 
     meeting = await save_meeting(
         user_id=user_id,
@@ -182,9 +176,7 @@ async def transcribe(
         transcript = transcription["text"]
         timeline = transcription["segments"]
 
-        summary = generate_summary(timeline)
-
-        title = generate_meeting_title(transcript)
+        summary, title = generate_summary_and_title(timeline, transcript)
 
         meeting = await save_meeting(
             user_id=user_id,

@@ -13,7 +13,7 @@ load_dotenv()
 
 gemini_client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY"),
-    http_options={"timeout": 10},
+    http_options={"timeout": 20},
 )
 
 GEMINI_MODEL = "gemini-3.8-flash"
@@ -24,29 +24,71 @@ GEMINI_MODEL = "gemini-3.8-flash"
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-# Try models in order; first one that works is used.
-# llama-3.3-70b-versatile removed — confirmed not found on this account.
-GROQ_MODELS = [
-    "llama-3.1-70b-versatile",
-    "llama-3.1-8b-instant",
-    "gemma2-9b-it",
-    "mixtral-8x7b-32768",
-]
+# Dynamically discovered at first use — never needs manual updates when
+# Groq deprecates models.
+_groq_model_cache: list[str] | None = None
+
+_SKIP_GROQ_KEYWORDS = ("whisper", "distil-whisper", "tts", "guard", "vision")
+
+
+def _discover_groq_models() -> list[str]:
+    """Query Groq /models and return active chat-completion model IDs."""
+    try:
+        resp = groq_client.models.list()
+        models = [
+            m.id for m in resp.data
+            if getattr(m, "active", True)
+            and not any(kw in m.id.lower() for kw in _SKIP_GROQ_KEYWORDS)
+        ]
+        # Prefer larger models first (rough heuristic on name)
+        def _size_rank(mid: str) -> int:
+            for tag in ("405b", "90b", "72b", "70b", "32b", "13b", "9b", "8b", "7b"):
+                if tag in mid:
+                    return int(tag.rstrip("b"))
+            return 0
+        models.sort(key=_size_rank, reverse=True)
+        print(f"Groq available models: {models}")
+        return models
+    except Exception as exc:
+        print(f"Groq model discovery failed: {exc}")
+        return []
+
+
+def _get_groq_models() -> list[str]:
+    global _groq_model_cache
+    if _groq_model_cache is None:
+        _groq_model_cache = _discover_groq_models()
+    return _groq_model_cache
 
 
 def _groq_generate(prompt: str) -> str:
-    last_err: Exception = RuntimeError("No Groq models available.")
-    for model in GROQ_MODELS:
+    global _groq_model_cache
+    models = _get_groq_models()
+    if not models:
+        raise RuntimeError("No Groq models discovered.")
+
+    last_err: Exception = RuntimeError("All Groq models failed.")
+    working: list[str] = []
+    for model in models:
         try:
             response = groq_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
             )
+            working.append(model)
+            # Narrow the cache to models that actually work
+            if working != models:
+                _groq_model_cache = working + [
+                    m for m in models if m not in working
+                ]
             return response.choices[0].message.content
         except Exception as err:
             print(f"Groq {model} failed: {err}")
             last_err = err
+
+    # All models failed — reset cache so next request re-discovers
+    _groq_model_cache = None
     raise last_err
 
 

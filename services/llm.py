@@ -2,7 +2,7 @@ import os
 
 from dotenv import load_dotenv
 from google import genai
-from langchain_groq import ChatGroq
+from groq import Groq
 
 load_dotenv()
 
@@ -15,16 +15,38 @@ gemini_client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY")
 )
 
+GEMINI_MODEL = "gemini-3.8-flash"
 
 # ============================================================
-# Groq fallback
+# Groq fallback (native SDK — no langchain dependency)
 # ============================================================
 
-groq_client = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    groq_api_key=os.getenv("GROQ_API_KEY"),
-    temperature=0.2
-)
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# Try models in order; first one that works is used.
+GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
+    "llama-3.1-8b-instant",
+    "gemma2-9b-it",
+    "mixtral-8x7b-32768",
+]
+
+
+def _groq_generate(prompt: str) -> str:
+    last_err: Exception = RuntimeError("No Groq models available.")
+    for model in GROQ_MODELS:
+        try:
+            response = groq_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+            )
+            return response.choices[0].message.content
+        except Exception as err:
+            print(f"Groq {model} failed: {err}")
+            last_err = err
+    raise last_err
 
 
 # ============================================================
@@ -36,7 +58,7 @@ def generate_response(prompt: str) -> str:
     try:
 
         response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt
         )
 
@@ -44,16 +66,13 @@ def generate_response(prompt: str) -> str:
 
     except Exception as gemini_error:
 
-        # Always fall back to Groq on any Gemini failure — model deprecations,
-        # quota exhaustion, transient errors — so the app keeps working.
+        # Always fall back to Groq on any Gemini failure.
         print(f"Gemini failed, falling back to Groq: {gemini_error}")
 
         try:
-            response = groq_client.invoke(prompt)
-            return response.content
+            return _groq_generate(prompt)
         except Exception as groq_error:
-            # Both providers failed — re-raise the original Gemini error.
-            print(f"Groq fallback also failed: {groq_error}")
+            print(f"All Groq models also failed: {groq_error}")
             raise gemini_error
 
 

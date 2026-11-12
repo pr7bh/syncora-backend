@@ -18,6 +18,8 @@ from services.youtube import (
 )
 from services.llm import generate_summary_and_title
 from services.rag import store_transcript, delete_meeting_chunks
+from database import meetings_collection
+from bson import ObjectId
 
 from services.meetings import (
     delete_meeting_by_id,
@@ -254,3 +256,35 @@ async def delete_meeting(
     return {
         "message": "Meeting deleted successfully"
     }
+
+
+class RenameMeetingRequest(BaseModel):
+    title: str
+
+
+@router.patch("/meetings/{meeting_id}/title")
+async def rename_meeting(
+    meeting_id: str,
+    request: RenameMeetingRequest,
+    current_user=Depends(get_current_user),
+):
+    user_id = str(current_user["_id"])
+    title = request.title.strip()
+
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+
+    try:
+        oid = ObjectId(meeting_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid meeting ID")
+
+    result = await meetings_collection.update_one(
+        {"_id": oid, "user_id": user_id},
+        {"$set": {"title": title}},
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    return {"message": "Meeting renamed successfully", "title": title}

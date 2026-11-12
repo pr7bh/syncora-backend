@@ -293,6 +293,7 @@ async def upload_profile_picture(
             print(f"Cloudinary: could not delete old image {old_public_id}: {err}")
 
     # Upload to Cloudinary
+    print(f"Cloudinary config: cloud_name={os.getenv('CLOUDINARY_CLOUD_NAME')}, api_key={os.getenv('CLOUDINARY_API_KEY')}")
     try:
         result = cloudinary.uploader.upload(
             io.BytesIO(contents),
@@ -302,9 +303,10 @@ async def upload_profile_picture(
             overwrite=True,
         )
     except Exception as err:
+        print(f"Cloudinary upload error: {type(err).__name__}: {err}")
         raise HTTPException(
             status_code=500,
-            detail="Failed to upload profile picture. Please try again."
+            detail=f"Cloudinary upload failed: {err}"
         ) from err
 
     secure_url = result["secure_url"]

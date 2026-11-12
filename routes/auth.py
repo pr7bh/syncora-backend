@@ -10,6 +10,8 @@ from services.dependencies import get_current_user
 from database import users_collection
 import os
 import io
+import uuid
+import requests as http_requests
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from services.auth import (
@@ -17,7 +19,6 @@ from services.auth import (
     hash_password,
     verify_password,
 )
-import uuid
 import cloudinary
 import cloudinary.uploader
 
@@ -143,6 +144,25 @@ async def get_me(current_user=Depends(get_current_user)):
     }
 
 
+def _upload_google_photo(picture_url: str, user_id: str) -> tuple[str, str] | None:
+    """Download a Google profile photo and upload it to Cloudinary.
+    Returns (secure_url, public_id) on success, or None if anything fails."""
+    try:
+        response = http_requests.get(picture_url, timeout=10)
+        response.raise_for_status()
+        result = cloudinary.uploader.upload(
+            io.BytesIO(response.content),
+            folder="syncora/profiles",
+            public_id=str(user_id),
+            resource_type="image",
+            overwrite=True,
+        )
+        return result["secure_url"], result["public_id"]
+    except Exception as err:
+        print(f"Cloudinary: could not upload Google photo: {err}")
+        return None
+
+
 @router.post("/google")
 async def google_login(
     request: GoogleLoginRequest
@@ -178,23 +198,27 @@ async def google_login(
     })
 
     if not user:
+        # Persist the Google photo on Cloudinary so the URL never expires
+        profile_image = picture
+        profile_picture_public_id = None
+        if picture:
+            upload = _upload_google_photo(picture, google_id)
+            if upload:
+                profile_image, profile_picture_public_id = upload
 
         user_data = {
             "username": name or email.split("@")[0],
             "email": email,
             "hashed_password": None,
             "google_id": google_id,
-            "profile_image": picture,
-            "is_active": True
+            "profile_image": profile_image,
+            "is_active": True,
         }
+        if profile_picture_public_id:
+            user_data["profile_picture_public_id"] = profile_picture_public_id
 
-        result = await users_collection.insert_one(
-            user_data
-        )
-
-        user = await users_collection.find_one({
-            "_id": result.inserted_id
-        })
+        result = await users_collection.insert_one(user_data)
+        user = await users_collection.find_one({"_id": result.inserted_id})
 
     else:
         update_data = {}
@@ -202,22 +226,22 @@ async def google_login(
         if not user.get("google_id"):
             update_data["google_id"] = google_id
 
+        # Only set profile image if the user doesn't have one yet
         if picture and not user.get("profile_image"):
-            update_data["profile_image"] = picture
+            upload = _upload_google_photo(picture, google_id)
+            if upload:
+                update_data["profile_image"], update_data["profile_picture_public_id"] = upload
+            else:
+                update_data["profile_image"] = picture
 
         if update_data:
             await users_collection.update_one(
                 {"_id": user["_id"]},
                 {"$set": update_data}
             )
+            user = await users_collection.find_one({"_id": user["_id"]})
 
-            user = await users_collection.find_one({
-                "_id": user["_id"]
-            })
-
-    access_token = create_access_token(
-        str(user["_id"])
-    )
+    access_token = create_access_token(str(user["_id"]))
 
     return {
         "access_token": access_token,

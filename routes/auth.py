@@ -135,12 +135,21 @@ async def login(request: LoginRequest):
 
 @router.get("/me")
 async def get_me(current_user=Depends(get_current_user)):
+    profile_image = current_user.get("profile_image")
+
+    # Stale local-filesystem paths from before Cloudinary — scrub them
+    if profile_image and profile_image.startswith("/uploads/"):
+        profile_image = None
+        await users_collection.update_one(
+            {"_id": current_user["_id"]},
+            {"$unset": {"profile_image": "", "profile_picture_public_id": ""}}
+        )
 
     return {
         "id": str(current_user["_id"]),
         "username": current_user["username"],
         "email": current_user["email"],
-        "profile_image": current_user.get("profile_image")
+        "profile_image": profile_image,
     }
 
 

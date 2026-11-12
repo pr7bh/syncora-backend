@@ -280,7 +280,7 @@ async def rename_meeting(
         raise HTTPException(status_code=400, detail="Invalid meeting ID")
 
     result = await meetings_collection.update_one(
-        {"_id": oid, "user_id": user_id},
+        {"_id": oid, "user_id": ObjectId(user_id)},
         {"$set": {"title": title}},
     )
 
